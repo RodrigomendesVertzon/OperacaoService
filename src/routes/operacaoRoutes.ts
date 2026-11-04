@@ -1,0 +1,17 @@
+import {Router,Request,Response,NextFunction} from 'express';
+import {z} from 'zod';
+import {authenticate,requireRoles} from '../middlewares/auth';
+import {AppError} from '../utils/AppError';
+import * as service from '../services/operacaoService';
+export const operacaoRoutes=Router();
+operacaoRoutes.use(authenticate);
+const wrap=(fn:(req:Request)=>Promise<unknown>,status=200)=>(req:Request,res:Response,next:NextFunction)=>Promise.resolve().then(()=>fn(req)).then(data=>res.status(status).json(data)).catch(next);
+const actor=(req:Request)=>{if(!req.auth)throw new AppError(401,'TOKEN_AUSENTE','Token ausente');return req.auth;};
+const bearer=(req:Request)=>req.headers.authorization!.slice(7);
+const id=(req:Request)=>z.coerce.number().int().positive().parse(req.params.id);
+operacaoRoutes.post('/checkins',wrap(req=>service.checkin(req.body,actor(req),bearer(req),req.correlationId,req.header('Idempotency-Key')||''),201));
+operacaoRoutes.get('/operacoes',wrap(req=>service.listar(z.coerce.number().int().positive().parse(req.query.empresaId),actor(req),req.query.status?z.enum(['AGUARDANDO_APROVACAO','EM_ANDAMENTO','REJEITADA','ENCERRADA','CANCELADA']).parse(req.query.status):undefined)));
+operacaoRoutes.get('/operacoes/:id',wrap(req=>service.detalhe(id(req),actor(req))));
+operacaoRoutes.post('/operacoes/:id/aprovar',requireRoles('ADMIN_PLATAFORMA','ADMIN_EMPRESA','GERENTE_EMPRESA'),wrap(req=>service.decidir(id(req),true,req.body,actor(req),req.correlationId)));
+operacaoRoutes.post('/operacoes/:id/rejeitar',requireRoles('ADMIN_PLATAFORMA','ADMIN_EMPRESA','GERENTE_EMPRESA'),wrap(req=>service.decidir(id(req),false,req.body,actor(req),req.correlationId)));
+operacaoRoutes.post('/operacoes/:id/checkout',wrap(req=>service.checkout(id(req),req.body,actor(req),bearer(req),req.correlationId)));

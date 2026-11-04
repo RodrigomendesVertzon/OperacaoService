@@ -1,0 +1,12 @@
+import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import {db} from './config/db';
+import {correlationId,errorHandler,notFound} from './middlewares/errorHandler';
+import {operacaoRoutes} from './routes/operacaoRoutes';
+export const app=express();
+app.use(helmet());app.use(cors());app.use(express.json({limit:'128kb'}));app.use(correlationId);
+app.get('/health/live',(_req,res)=>res.json({status:'UP',service:'operacao-service'}));
+app.get('/health/ready',async(_req,res)=>{try{await db.query('SELECT 1');res.json({status:'UP',database:'UP'});}catch{res.status(503).json({status:'DOWN',database:'DOWN'});}});
+app.use('/v1',operacaoRoutes);
+app.use(notFound);app.use(errorHandler);
