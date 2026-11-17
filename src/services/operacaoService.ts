@@ -56,7 +56,27 @@ export async function decidir(operacaoId:number,aprovar:boolean,body:unknown,act
   if(op.status!=='AGUARDANDO_APROVACAO')throw new AppError(409,'TRANSICAO_INVALIDA','Operação não está aguardando aprovação');
   const status=aprovar?'EM_ANDAMENTO':'REJEITADA';
   if(aprovar)await c.execute("UPDATE operacao SET status='EM_ANDAMENTO',aprovado_em=UTC_TIMESTAMP(3),aprovado_por=?,versao=versao+1 WHERE id=?",[actor.userId,operacaoId]);
-  else await c.execute("UPDATE operacao SET status='REJEITADA',rejeitado_em=UTC_TIMESTAMP(3),rejeitado_por=?,motivo_rejeicao=?,versao=versao+1 WHERE id=?",[actor.userId,b.motivo,operacaoId]);
+else {
+  if (!b.motivo?.trim()) {
+    throw new AppError(
+      400,
+      "MOTIVO_OBRIGATORIO",
+      "Informe o motivo da rejeição"
+    );
+  }
+
+  await c.execute(
+    `UPDATE operacao
+     SET status = 'REJEITADA',
+         rejeitado_em = UTC_TIMESTAMP(3),
+         rejeitado_por = ?,
+         motivo_rejeicao = ?,
+         versao = versao + 1
+     WHERE id = ?`,
+    [actor.userId, b.motivo, operacaoId]
+  );
+}
+
   await audit(c,operacaoId,aprovar?'APROVACAO':'REJEICAO',actor,correlationId,b);
   await event(c,operacaoId,aprovar?'operacao.aprovada.v1':'operacao.rejeitada.v1',{operacaoId,empresaId:op.empresa_id,freelancerId:op.freelancer_id,alocacaoId:op.alocacao_id,status,motivo:b.motivo});
   // O Financeiro deve consumir operacao.aprovada.v1 com idempotência e efetuar débito; não cobramos no banco de Operação.
