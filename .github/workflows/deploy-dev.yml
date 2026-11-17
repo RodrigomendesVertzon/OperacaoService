@@ -62,3 +62,70 @@ jobs:
           tags: |
             ${{ steps.image.outputs.name }}:${{ github.sha }}
             ${{ steps.image.outputs.name }}:dev
+
+  deploy:
+    name: Deploy DEV na VPS
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Configurar SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy e validacao
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          IMAGE: ghcr.io/rodrigomendesvertzon/operacaoservice:${{ github.sha }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "OPERACAO_IMAGE='$IMAGE' bash -se" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/plataforma-dev
+
+          COMPOSE=(
+            -f compose.yaml
+            -f deploy/compose.apps.yaml
+            -f deploy/compose.ghcr.yaml
+          )
+
+          docker compose "${COMPOSE[@]}" pull operacao-service
+
+          docker compose "${COMPOSE[@]}" \
+            up -d --no-deps operacao-service
+
+          echo "Aguardando API e MySQL..."
+
+          READY=0
+          for i in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              --max-time 3 \
+              http://127.0.0.1:3005/health/ready \
+              > /dev/null 2>&1; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "ERRO: Operacao Service nao ficou pronto"
+            docker compose "${COMPOSE[@]}" \
+              logs --tail=80 operacao-service
+            exit 1
+          fi
+
+          echo "Deploy concluido. API e MySQL OK."
+          docker compose "${COMPOSE[@]}" ps operacao-service
+          REMOTE
