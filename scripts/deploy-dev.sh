@@ -38,9 +38,7 @@ echo "Nova imagem: $NEW_IMAGE"
 
 # Cria um override temporario para impedir pull
 # da imagem local durante o rollback.
-ROLLBACK_OVERRIDE="$(
-  mktemp /opt/plataforma-dev/deploy/rollback-XXXXXX.yaml
-)"
+ROLLBACK_OVERRIDE="$(mktemp /tmp/operacao-rollback-XXXXXX.yaml)"
 
 cat > "$ROLLBACK_OVERRIDE" <<'YAML'
 services:
